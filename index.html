@@ -1,40 +1,98 @@
 <!DOCTYPE html>
-<html>
+<html lang="vi">
 <head>
+  <meta charset="UTF-8">
   <title>Split Money App Pro</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body class="container py-4">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<h2>💸 Split Money App</h2>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    body {
+      background: #f5f7fb;
+    }
+
+    .card {
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      border: none;
+    }
+
+    h2 {
+      font-weight: 700;
+    }
+
+    .btn {
+      border-radius: 10px;
+    }
+
+    .result-box {
+      background: white;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+
+    .copy-btn {
+      cursor: pointer;
+    }
+
+    @media (max-width: 576px) {
+      h2 {
+        font-size: 20px;
+      }
+    }
+  </style>
+</head>
+
+<body class="container py-3">
+
+<h2 class="text-center mb-4">💸 Split Money App</h2>
 
 <!-- TRIP -->
-<div id="tripBlock">
-  <input id="tripName" class="form-control mb-2" placeholder="Tên trip">
-  <button class="btn btn-secondary mb-3" onclick="createTrip()">Load Trip</button>
+<div id="tripBlock" class="card p-3 mb-3">
+  <label class="form-label">Tên Trip</label>
+  <input id="tripName" class="form-control mb-2" placeholder="VD: Đà Lạt 2026">
+  <button class="btn btn-dark w-100" onclick="createTrip()">🚀 Tạo / Load Trip</button>
 </div>
 
-<input id="shareLink" class="form-control mb-3" readonly>
+<div class="input-group mb-3" id="share-link-group">
+  <input id="shareLink" class="form-control text-center" readonly>
+  <button class="btn btn-outline-secondary copy-btn" onclick="copyLink()">Copy</button>
+</div>
 
 <!-- MEMBER -->
 <div id="memberBlock" class="card p-3 mb-3">
-  <input id="memberName" class="form-control mb-2" placeholder="Tên người"
-         onkeypress="handleEnter(event, 'addMember')">
-  <button class="btn btn-primary mb-2" onclick="addMember()">Thêm người</button>
+  <h5 class="mb-3">👥 Thành viên</h5>
+
+  <div class="input-group mb-2">
+    <input id="memberName" class="form-control" placeholder="Nhập tên..."
+           onkeypress="handleEnter(event, 'addMember')">
+    <button class="btn btn-primary" onclick="addMember()">+</button>
+  </div>
+
   <ul id="memberList" class="list-group"></ul>
 </div>
 
 <!-- EXPENSE -->
 <div class="card p-3 mb-3">
+  <h5 class="mb-3">💰 Thêm chi tiêu</h5>
+
   <select id="expenseUser" class="form-select mb-2"></select>
+
   <input id="category" class="form-control mb-2" placeholder="Hạng mục">
-  <input id="amount" type="number" class="form-control mb-2" placeholder="Số tiền"
+
+  <input id="amount" type="number" class="form-control mb-2"
+         placeholder="Số tiền"
          onkeypress="handleEnter(event, 'addExpense')">
-  <button class="btn btn-success" onclick="addExpense()">Thêm</button>
+
+  <button class="btn btn-success w-100" onclick="addExpense()">➕ Thêm</button>
 </div>
 
-<div id="result"></div>
+<!-- RESULT -->
+<div id="result" class="result-box"></div>
 
+<!-- FIREBASE -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
@@ -51,22 +109,28 @@ const db = firebase.firestore();
 let currentTrip = null;
 let appPassword = "";
 
+// FORMAT MONEY
+function formatMoney(n) {
+  return (n || 0).toLocaleString('vi-VN') + "₫";
+}
+
+// COPY LINK
+function copyLink() {
+  const input = document.getElementById("shareLink");
+  input.select();
+  document.execCommand("copy");
+  alert("Đã copy link 👍");
+}
+
 // LOAD PASSWORD
 async function loadPassword() {
-  try {
-    const doc = await db.collection("config").doc("app").get();
-    appPassword = doc.data()?.password || "";
-  } catch (e) {
-    console.error("Load pass lỗi:", e);
-  }
+  const doc = await db.collection("config").doc("app").get();
+  appPassword = doc.data()?.password || "";
 }
 
 // CHECK PASSWORD
 async function checkPassword() {
-  if (!appPassword) {
-    await loadPassword();
-  }
-
+  if (!appPassword) await loadPassword();
   const pass = prompt("Nhập mật khẩu:");
   return pass && pass.trim() === appPassword.trim();
 }
@@ -81,8 +145,6 @@ function handleEnter(e, action) {
 
 // CREATE TRIP
 async function createTrip() {
-  await loadPassword();
-
   const name = document.getElementById("tripName").value.trim();
   if (!name) return;
 
@@ -94,7 +156,7 @@ async function createTrip() {
   startRealtime();
 }
 
-// LOAD URL + HIDE UI
+// LOAD URL
 window.onload = () => {
   const params = new URLSearchParams(location.search);
   const trip = params.get("trip");
@@ -102,7 +164,7 @@ window.onload = () => {
   if (trip) {
     document.getElementById("tripBlock").style.display = "none";
     document.getElementById("memberBlock").style.display = "none";
-    document.getElementById("shareLink").style.display = "none";
+    document.getElementById("share-link-group").style.display = "none";
 
     document.getElementById("tripName").value = trip;
     createTrip();
@@ -115,8 +177,7 @@ async function addMember() {
   if (!name || !currentTrip) return;
 
   await db.collection("trips").doc(currentTrip)
-    .collection("members")
-    .add({ name });
+    .collection("members").add({ name });
 
   document.getElementById("memberName").value = "";
 }
@@ -131,8 +192,7 @@ async function editMember(id, oldName) {
 
   const snap = await db.collection("trips").doc(currentTrip)
     .collection("expenses")
-    .where("user", "==", oldName)
-    .get();
+    .where("user", "==", oldName).get();
 
   snap.forEach(doc => doc.ref.update({ user: newName }));
 }
@@ -145,13 +205,12 @@ async function deleteMember(id, name) {
 
   const snap = await db.collection("trips").doc(currentTrip)
     .collection("expenses")
-    .where("user", "==", name)
-    .get();
+    .where("user", "==", name).get();
 
   snap.forEach(doc => doc.ref.delete());
 }
 
-// ADD EXPENSE
+// EXPENSE
 async function addExpense() {
   const user = document.getElementById("expenseUser").value;
   const category = document.getElementById("category").value;
@@ -160,14 +219,12 @@ async function addExpense() {
   if (!user || !amount || !currentTrip) return;
 
   await db.collection("trips").doc(currentTrip)
-    .collection("expenses")
-    .add({ user, category, amount });
+    .collection("expenses").add({ user, category, amount });
 
   document.getElementById("category").value = "";
   document.getElementById("amount").value = "";
 }
 
-// EDIT EXPENSE
 async function editExpense(id, amount) {
   if (!(await checkPassword())) {
     alert("Sai mật khẩu!");
@@ -182,7 +239,6 @@ async function editExpense(id, amount) {
     .update({ amount: parseFloat(newAmount) });
 }
 
-// DELETE EXPENSE
 async function deleteExpense(id) {
   if (!(await checkPassword())) {
     alert("Sai mật khẩu!");
@@ -203,7 +259,6 @@ function startRealtime() {
     .onSnapshot(memberSnap => {
 
       let members = [];
-
       const list = document.getElementById("memberList");
       const select = document.getElementById("expenseUser");
 
@@ -215,7 +270,7 @@ function startRealtime() {
         members.push(m);
 
         list.innerHTML += `
-          <li class="list-group-item d-flex justify-content-between">
+          <li class="list-group-item d-flex justify-content-between align-items-center">
             ${m}
             <div>
               <button class="btn btn-sm btn-warning"
@@ -236,7 +291,7 @@ function startRealtime() {
           let total = 0;
           let paid = {};
 
-          let html = "<table class='table'><tr><th>Người</th><th>Hạng mục</th><th>Tiền</th><th>Action</th></tr>";
+          let html = "<table class='table table-sm'><tr><th>Người</th><th>Hạng mục</th><th>Tiền</th><th></th></tr>";
 
           snapshot.forEach(doc => {
             const d = doc.data();
@@ -247,8 +302,8 @@ function startRealtime() {
             html += `
               <tr>
                 <td>${d.user}</td>
-                <td>${d.category}</td>
-                <td>${d.amount}</td>
+                <td>${d.category || ""}</td>
+                <td>${formatMoney(d.amount)}</td>
                 <td>
                   <button class="btn btn-sm btn-warning"
                     onclick="editExpense('${doc.id}', ${d.amount})">Sửa</button>
@@ -282,16 +337,16 @@ function startRealtime() {
               c.value -= pay;
               d.value += pay;
 
-              settlement += `<p>${d.name} trả ${c.name}: ${pay.toFixed(2)}</p>`;
+              settlement += `<p>${d.name} trả ${c.name}: <b>${formatMoney(pay)}</b></p>`;
             });
           });
 
           document.getElementById("result").innerHTML =
-            `<h4>Tổng: ${total}</h4>
-             <p>Mỗi người: ${avg.toFixed(2)}</p>
-             <h5>📄 Chi tiết</h5>
+            `<h5>Tổng: ${formatMoney(total)}</h5>
+             <p>Mỗi người: ${formatMoney(avg)}</p>
+             <h6>📄 Chi tiết</h6>
              ${html}
-             <h5>🔄 Ai trả ai</h5>
+             <h6>🔄 Ai trả ai</h6>
              ${settlement || "Đã cân bằng 👍"}`;
         });
     });
