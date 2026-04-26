@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Split Money App Pro</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container py-4">
+
+<h2>💸 Split Money App</h2>
+
+<!-- TRIP -->
+<div id="tripBlock">
+  <input id="tripName" class="form-control mb-2" placeholder="Tên trip">
+  <button class="btn btn-secondary mb-3" onclick="createTrip()">Load Trip</button>
+</div>
+
+<input id="shareLink" class="form-control mb-3" readonly>
+
+<!-- MEMBER -->
+<div id="memberBlock" class="card p-3 mb-3">
+  <input id="memberName" class="form-control mb-2" placeholder="Tên người"
+         onkeypress="handleEnter(event, 'addMember')">
+  <button class="btn btn-primary mb-2" onclick="addMember()">Thêm người</button>
+  <ul id="memberList" class="list-group"></ul>
+</div>
+
+<!-- EXPENSE -->
+<div class="card p-3 mb-3">
+  <select id="expenseUser" class="form-select mb-2"></select>
+  <input id="category" class="form-control mb-2" placeholder="Hạng mục">
+  <input id="amount" type="number" class="form-control mb-2" placeholder="Số tiền"
+         onkeypress="handleEnter(event, 'addExpense')">
+  <button class="btn btn-success" onclick="addExpense()">Thêm</button>
+</div>
+
+<div id="result"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyCF4fY5OVOpD52uhkY4bXnaa426EfQsMCE",
+  authDomain: "split-money-app-c6ac2.firebaseapp.com",
+  projectId: "split-money-app-c6ac2"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+let currentTrip = null;
+let appPassword = "";
+
+// LOAD PASSWORD
+async function loadPassword() {
+  try {
+    const doc = await db.collection("config").doc("app").get();
+    appPassword = doc.data()?.password || "";
+  } catch (e) {
+    console.error("Load pass lỗi:", e);
+  }
+}
+
+// CHECK PASSWORD
+async function checkPassword() {
+  if (!appPassword) {
+    await loadPassword();
+  }
+
+  const pass = prompt("Nhập mật khẩu:");
+  return pass && pass.trim() === appPassword.trim();
+}
+
+// ENTER
+function handleEnter(e, action) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    window[action]();
+  }
+}
+
+// CREATE TRIP
+async function createTrip() {
+  await loadPassword();
+
+  const name = document.getElementById("tripName").value.trim();
+  if (!name) return;
+
+  currentTrip = name;
+
+  const url = location.origin + location.pathname + "?trip=" + encodeURIComponent(name);
+  document.getElementById("shareLink").value = url;
+
+  startRealtime();
+}
+
+// LOAD URL + HIDE UI
+window.onload = () => {
+  const params = new URLSearchParams(location.search);
+  const trip = params.get("trip");
+
+  if (trip) {
+    document.getElementById("tripBlock").style.display = "none";
+    document.getElementById("memberBlock").style.display = "none";
+    document.getElementById("shareLink").style.display = "none";
+
+    document.getElementById("tripName").value = trip;
+    createTrip();
+  }
+};
+
+// MEMBER
+async function addMember() {
+  const name = document.getElementById("memberName").value.trim();
+  if (!name || !currentTrip) return;
+
+  await db.collection("trips").doc(currentTrip)
+    .collection("members")
+    .add({ name });
+
+  document.getElementById("memberName").value = "";
+}
+
+async function editMember(id, oldName) {
+  const newName = prompt("Tên mới:", oldName);
+  if (!newName) return;
+
+  await db.collection("trips").doc(currentTrip)
+    .collection("members").doc(id)
+    .update({ name: newName });
+
+  const snap = await db.collection("trips").doc(currentTrip)
+    .collection("expenses")
+    .where("user", "==", oldName)
+    .get();
+
+  snap.forEach(doc => doc.ref.update({ user: newName }));
+}
+
+async function deleteMember(id, name) {
+  if (!confirm("Xóa người này?")) return;
+
+  await db.collection("trips").doc(currentTrip)
+    .collection("members").doc(id).delete();
+
+  const snap = await db.collection("trips").doc(currentTrip)
+    .collection("expenses")
+    .where("user", "==", name)
+    .get();
+
+  snap.forEach(doc => doc.ref.delete());
+}
+
+// ADD EXPENSE
+async function addExpense() {
+  const user = document.getElementById("expenseUser").value;
+  const category = document.getElementById("category").value;
+  const amount = parseFloat(document.getElementById("amount").value);
+
+  if (!user || !amount || !currentTrip) return;
+
+  await db.collection("trips").doc(currentTrip)
+    .collection("expenses")
+    .add({ user, category, amount });
+
+  document.getElementById("category").value = "";
+  document.getElementById("amount").value = "";
+}
+
+// EDIT EXPENSE
+async function editExpense(id, amount) {
+  if (!(await checkPassword())) {
+    alert("Sai mật khẩu!");
+    return;
+  }
+
+  const newAmount = prompt("Số tiền mới:", amount);
+  if (!newAmount) return;
+
+  await db.collection("trips").doc(currentTrip)
+    .collection("expenses").doc(id)
+    .update({ amount: parseFloat(newAmount) });
+}
+
+// DELETE EXPENSE
+async function deleteExpense(id) {
+  if (!(await checkPassword())) {
+    alert("Sai mật khẩu!");
+    return;
+  }
+
+  if (!confirm("Xóa khoản này?")) return;
+
+  await db.collection("trips").doc(currentTrip)
+    .collection("expenses").doc(id).delete();
+}
+
+// REALTIME
+function startRealtime() {
+
+  db.collection("trips").doc(currentTrip)
+    .collection("members")
+    .onSnapshot(memberSnap => {
+
+      let members = [];
+
+      const list = document.getElementById("memberList");
+      const select = document.getElementById("expenseUser");
+
+      list.innerHTML = "";
+      select.innerHTML = "";
+
+      memberSnap.forEach(doc => {
+        const m = doc.data().name;
+        members.push(m);
+
+        list.innerHTML += `
+          <li class="list-group-item d-flex justify-content-between">
+            ${m}
+            <div>
+              <button class="btn btn-sm btn-warning"
+                onclick="editMember('${doc.id}', \`${m}\`)">Sửa</button>
+              <button class="btn btn-sm btn-danger"
+                onclick="deleteMember('${doc.id}', \`${m}\`)">Xóa</button>
+            </div>
+          </li>
+        `;
+
+        select.innerHTML += `<option>${m}</option>`;
+      });
+
+      db.collection("trips").doc(currentTrip)
+        .collection("expenses")
+        .onSnapshot(snapshot => {
+
+          let total = 0;
+          let paid = {};
+
+          let html = "<table class='table'><tr><th>Người</th><th>Hạng mục</th><th>Tiền</th><th>Action</th></tr>";
+
+          snapshot.forEach(doc => {
+            const d = doc.data();
+
+            total += d.amount;
+            paid[d.user] = (paid[d.user] || 0) + d.amount;
+
+            html += `
+              <tr>
+                <td>${d.user}</td>
+                <td>${d.category}</td>
+                <td>${d.amount}</td>
+                <td>
+                  <button class="btn btn-sm btn-warning"
+                    onclick="editExpense('${doc.id}', ${d.amount})">Sửa</button>
+                  <button class="btn btn-sm btn-danger"
+                    onclick="deleteExpense('${doc.id}')">Xóa</button>
+                </td>
+              </tr>
+            `;
+          });
+
+          html += "</table>";
+
+          const avg = members.length ? total / members.length : 0;
+
+          let balance = members.map(m => ({
+            name: m,
+            value: (paid[m] || 0) - avg
+          }));
+
+          let creditors = balance.filter(x => x.value > 0);
+          let debtors = balance.filter(x => x.value < 0);
+
+          let settlement = "";
+
+          creditors.forEach(c => {
+            debtors.forEach(d => {
+              if (c.value <= 0) return;
+              if (d.value >= 0) return;
+
+              let pay = Math.min(c.value, -d.value);
+              c.value -= pay;
+              d.value += pay;
+
+              settlement += `<p>${d.name} trả ${c.name}: ${pay.toFixed(2)}</p>`;
+            });
+          });
+
+          document.getElementById("result").innerHTML =
+            `<h4>Tổng: ${total}</h4>
+             <p>Mỗi người: ${avg.toFixed(2)}</p>
+             <h5>📄 Chi tiết</h5>
+             ${html}
+             <h5>🔄 Ai trả ai</h5>
+             ${settlement || "Đã cân bằng 👍"}`;
+        });
+    });
+}
+</script>
+
+</body>
+</html>
