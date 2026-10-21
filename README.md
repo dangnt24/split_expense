@@ -1,31 +1,26 @@
-# Split Money App — lưu JSON, không Firebase
+# Split Money — GitHub Pages + Firestore
 
-## Cách chạy trên hosting
+Bản này chỉ cần `index.html` trên GitHub Pages, không dùng PHP, `data.json`, XAMPP hay `.htaccess`. Firestore là nơi lưu dữ liệu thật, còn `firestore.rules` cần **dán vào Firebase Console**, không upload để mong tự áp dụng.
 
-1. Chọn hosting **có chạy PHP 8.0 trở lên**, tốt nhất dùng Apache và HTTPS. Hosting chỉ phục vụ file tĩnh như GitHub Pages / Netlify không chạy được `api.php`.
-2. Upload **tất cả** file `index.html`, `api.php`, `config.php`, `data.json`, `.htaccess` vào **cùng một thư mục** website (ví dụ `public_html/`).
-3. Mở `config.php`, đổi `APP_EDIT_PASSWORD` thành mật khẩu riêng đủ mạnh.
-4. Đảm bảo PHP có quyền ghi file `data.json` (thông thường quyền `664` hoặc `644` nếu PHP chạy cùng chủ sở hữu file). **Không đặt quyền `777` nếu không cần**.
-5. Truy cập `https://ten-mien-cua-ban/.../index.html`, nhập tên trip và thêm thành viên.
-6. Dùng nút Copy để gửi link cho bạn bè. Trang tự cập nhật dữ liệu sau khoảng 4 giây.
+## Thiết lập
 
-## Về bảo mật / giới hạn
+1. Mở https://console.firebase.google.com/ → chọn project `split-money-app-c6ac2` (project cấu hình sẵn trong `index.html`). Nếu là project khác, thay `firebaseConfig` bằng cấu hình Web App của project đó.
+2. Authentication → Sign-in method → bật **Anonymous**.
+3. Firestore Database → tạo database nếu chưa có, chọn **Standard edition**, một database mặc định. Vào **Rules**, dán **toàn bộ** nội dung file `firestore.rules` và **Publish**. Đừng dùng `allow read, write: if true`.
+4. Authentication → Settings → Authorized domains: thêm domain GitHub Pages `TEN_USER.github.io` nếu đăng nhập báo lỗi domain không được phép.
+5. GitHub → repository → đưa file `index.html` lên nhánh `main` (ở root). Settings → Pages → Deploy from a branch → `main` → `/ (root)` → Save. Mở `https://TEN_USER.github.io/TEN_REPO/`.
+6. Tạo trip và gửi link đầy đủ `?trip=...` cho mọi người. Dùng cửa sổ ẩn danh hoặc thiết bị khác để thử đồng bộ.
 
-- `.htaccess` chặn truy cập trực tiếp `data.json` và `config.php` **chỉ trên Apache có bật AllowOverride**. Nếu dùng Nginx hoặc hosting bỏ qua `.htaccess`, cần thiết lập quy tắc chặn tương đương hoặc chuyển file dữ liệu/cấu hình ra ngoài thư mục công khai.
-- Trong bản tối giản này, bất kỳ ai biết tên trip có thể mở trip. Thành viên có link được thêm chi tiêu; chỉ sửa/xóa **khoản chi** mới cần mật khẩu. Việc ẩn nút thành viên ở giao diện link chia sẻ **không phải** cơ chế phân quyền. Tránh lưu dữ liệu nhạy cảm. Nếu cần bảo vệ chặt, hãy thêm xác thực máy chủ cho mọi thao tác ghi.
-- `data.json` là dữ liệu chung của toàn bộ trip trong website. Nên sao lưu file này định kỳ. Không nên sử dụng cho số lượng truy cập rất lớn.
-- Bản này dùng tiền VNĐ **số nguyên** và tự chia phần dư theo đơn vị 1₫, nên các khoản thanh toán khớp đúng tổng.
-- Xóa thành viên sẽ xóa luôn những khoản chi mà người đó đã trả, như ứng dụng gốc. Sửa tên thành viên không làm mất chi tiêu.
-- `data.json` phải ở cùng thư mục với `api.php` theo yêu cầu; có thể đổi `$path` trong `api.php` để lưu an toàn hơn ở thư mục không công khai.
+## Quyền và an toàn
 
-## Chạy thử ở máy cá nhân
+- Người có link có thể **xem và thêm** dữ liệu. **Người đã thêm khoản chi** (theo tài khoản ẩn danh Firebase của trình duyệt) mới được sửa/xóa khoản đó.
+- Thành viên chỉ được **thêm**, không có nút sửa/xóa để tránh phá vỡ lịch sử. Link là mã ngẫu nhiên khó đoán nhưng **không phải hệ thống phân quyền nhóm kín**: người biết mã truy cập có thể đọc dữ liệu nếu đăng nhập ẩn danh. Không dùng cho thông tin nhạy cảm.
+- Nếu trình duyệt xóa dữ liệu/đăng nhập ẩn danh, UID có thể thay đổi, khiến người dùng không thể sửa khoản chi cũ. Cần tài khoản đăng nhập thực sự hoặc admin backend nếu muốn quản lý nâng cao.
+- Firestore rules kiểm tra cấu trúc dữ liệu, không ngăn hoàn toàn spam/hết quota. Có thể thêm App Check và quản lý người tham gia trong bản nâng cao.
+- Firebase Web API key nằm trong HTML không phải mật khẩu quản trị. **Đừng đặt mật khẩu bí mật hoặc token GitHub trong client.**
+- Project Firebase ban đầu có thể còn rules hoặc dữ liệu cũ. Nên sao lưu, rà soát rules trước khi dán vì rules mới chỉ dành cho cấu trúc app này.
+- Chi phí: Firestore có mức miễn phí giới hạn; vượt mức quota có thể bị giới hạn hoặc phát sinh phí nếu chuyển sang gói trả phí. Xem https://firebase.google.com/docs/firestore/pricing
 
-Trong thư mục chứa file, chạy:
+## Kiểm thử local
 
-```bash
-php -S localhost:8000
-```
-
-Mở `http://localhost:8000/`.
-
-**Chú ý:** Web server có sẵn trong PHP không áp dụng `.htaccess` và không dùng để public lên Internet. Muốn triển khai thực tế nên dùng máy chủ cấu hình chặn truy cập file JSON và config.
+Có thể dùng VS Code Live Server hoặc `python -m http.server 8000`, rồi truy cập `http://localhost:8000` (tùy chọn, không cần PHP). Đảm bảo domain được Firebase cho phép nếu gặp lỗi đăng nhập.

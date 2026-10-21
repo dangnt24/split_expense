@@ -1,372 +1,137 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Split Money App - JSON</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    body { background: #f5f7fb; }
-    .card, .result-box { border: 0; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,.06); }
-    .result-box { background: white; padding: 18px; }
-    h2 { font-weight: 700; }
-    .btn { border-radius: 10px; }
-    .table td, .table th { vertical-align: middle; }
-    .table-wrap { overflow-x: auto; }
-    @media (max-width: 576px) { h2 { font-size: 22px; } }
-  </style>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Split Money — Chia tiền nhóm</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+body{background:#f5f7fb;color:#1e293b}.card{border:0;border-radius:17px;box-shadow:0 3px 14px #152d4810}.btn{border-radius:10px}.money{font-variant-numeric:tabular-nums}.muted{color:#64748b}.table-responsive{overflow-x:auto} .status{min-height:24px} .tiny{font-size:.84rem}
+</style>
 </head>
-<body class="container py-3" style="max-width: 850px">
-  <h2 class="text-center mb-4">💸 Split Money App</h2>
-
-  <div id="statusBox" class="alert d-none" role="alert"></div>
-
-  <div id="tripBlock" class="card p-3 mb-3">
-    <label class="form-label" for="tripName">Tên Trip</label>
-    <input id="tripName" class="form-control mb-2" maxlength="100" placeholder="VD: Đà Lạt 2026">
-    <button id="createTripBtn" class="btn btn-dark w-100" type="button">🚀 Tạo / Load Trip</button>
-    <small class="text-secondary mt-2">Nhập lại đúng tên cũ để mở trip đã tạo. Không dùng tên trip dễ đoán cho thông tin nhạy cảm.</small>
-  </div>
-
-  <div class="input-group mb-3 d-none" id="share-link-group">
-    <input id="shareLink" class="form-control text-center" aria-label="Link chia sẻ" readonly>
-    <button id="copyLinkBtn" type="button" class="btn btn-outline-secondary">Copy</button>
-  </div>
-
-  <div id="memberBlock" class="card p-3 mb-3 d-none">
-    <h5 class="mb-3">👥 Thành viên</h5>
-    <div class="input-group mb-2">
-      <input id="memberName" class="form-control" maxlength="80" placeholder="Nhập tên...">
-      <button id="addMemberBtn" class="btn btn-primary" type="button">+</button>
-    </div>
-    <ul id="memberList" class="list-group"></ul>
-  </div>
-
-  <div id="expenseBlock" class="card p-3 mb-3 d-none">
-    <h5 class="mb-3">💰 Thêm chi tiêu</h5>
-    <select id="expenseUser" class="form-select mb-2" aria-label="Người đã trả"></select>
-    <input id="category" class="form-control mb-2" maxlength="100" placeholder="Hạng mục">
-    <input id="amount" type="number" min="1" step="1" class="form-control mb-2" placeholder="Số tiền (VNĐ)">
-    <button id="addExpenseBtn" class="btn btn-success w-100" type="button">➕ Thêm</button>
-  </div>
-
-  <div id="result" class="result-box d-none"></div>
-
-  <script>
-    'use strict';
-    const $ = id => document.getElementById(id);
-    const money = n => new Intl.NumberFormat('vi-VN').format(n || 0) + '₫';
-    let currentTrip = '';
-    let refreshTimer = null;
-    let isRefreshing = false;
-    let statusTimer = null;
-
-    function showMessage(message, kind = 'success') {
-      const box = $('statusBox');
-      box.textContent = message;
-      box.className = `alert alert-${kind}`;
-      clearTimeout(statusTimer);
-      statusTimer = setTimeout(() => box.classList.add('d-none'), 4500);
-    }
-
-    async function api(action, payload = {}) {
-      const isGet = action === 'get';
-      const url = isGet
-        ? `api.php?action=get&trip=${encodeURIComponent(currentTrip)}`
-        : 'api.php';
-      const response = await fetch(url, {
-        method: isGet ? 'GET' : 'POST',
-        headers: isGet ? {} : { 'Content-Type': 'application/json' },
-        body: isGet ? undefined : JSON.stringify({ action, trip: currentTrip, ...payload }),
-        cache: 'no-store'
-      });
-      let data;
-      try { data = await response.json(); }
-      catch { throw new Error('Máy chủ không trả về JSON. Hosting có hỗ trợ PHP không?'); }
-      if (!response.ok || !data.ok) throw new Error(data.message || 'Có lỗi khi kết nối.');
-      return data;
-    }
-
-    async function createTrip() {
-      const name = $('tripName').value.trim();
-      if (!name) return showMessage('Bạn chưa nhập tên trip.', 'warning');
-      await openTrip(name, false);
-    }
-
-    async function openTrip(name, isGuest) {
-      clearInterval(refreshTimer);
-      currentTrip = name;
-      try {
-        await api('init_trip');
-        $('tripName').value = name;
-        $('tripBlock').classList.add('d-none');
-        $('memberBlock').classList.toggle('d-none', isGuest);
-        $('share-link-group').classList.toggle('d-none', isGuest);
-        $('expenseBlock').classList.remove('d-none');
-        $('result').classList.remove('d-none');
-        // Chủ trip xem ?trip=, người được chia sẻ xem ?trip=...&view=guest.
-        const ownUrl = new URL(location.href);
-        ownUrl.searchParams.set('trip', name);
-        if (isGuest) ownUrl.searchParams.set('view', 'guest');
-        else ownUrl.searchParams.delete('view');
-        history.replaceState(null, '', ownUrl);
-        const link = new URL(location.href);
-        link.searchParams.set('view', 'guest');
-        $('shareLink').value = link.href;
-        await refreshData();
-        refreshTimer = setInterval(refreshData, 4000);
-      } catch (error) {
-        showMessage(error.message, 'danger');
-      }
-    }
-
-    async function refreshData() {
-      if (!currentTrip || isRefreshing) return;
-      isRefreshing = true;
-      const requestedTrip = currentTrip;
-      try {
-        const data = await api('get');
-        if (requestedTrip !== currentTrip) return;
-        renderMembers(data.members);
-        renderResults(data.members, data.expenses);
-      } catch (error) {
-        showMessage('Không tải được dữ liệu: ' + error.message, 'danger');
-      } finally {
-        isRefreshing = false;
-      }
-    }
-
-    async function runAction(action, payload, successMessage = 'Đã lưu.') {
-      try {
-        await api(action, payload);
-        await refreshData();
-        showMessage(successMessage);
-        return true;
-      } catch (error) {
-        showMessage(error.message, 'danger');
-        return false;
-      }
-    }
-
-    function smallButton(title, color, onClick) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = `btn btn-sm btn-${color}`;
-      btn.textContent = title;
-      btn.addEventListener('click', onClick);
-      return btn;
-    }
-
-    function renderMembers(members) {
-      const list = $('memberList');
-      const select = $('expenseUser');
-      const previous = select.value;
-      list.replaceChildren();
-      select.replaceChildren();
-      members.forEach(member => {
-        const li = document.createElement('li');
-        li.className = 'list-group-item d-flex justify-content-between align-items-center gap-2';
-        const label = document.createElement('span');
-        label.className = 'text-break';
-        label.textContent = member.name;
-        const actions = document.createElement('div');
-        actions.className = 'd-flex gap-1 flex-shrink-0';
-        actions.append(
-          smallButton('Sửa', 'warning', () => editMember(member)),
-          smallButton('Xóa', 'danger', () => deleteMember(member))
-        );
-        li.append(label, actions);
-        list.append(li);
-        const option = document.createElement('option');
-        option.value = member.id;
-        option.textContent = member.name;
-        select.append(option);
-      });
-      if (members.some(m => m.id === previous)) select.value = previous;
-      if (!members.length) {
-        const option = document.createElement('option');
-        option.textContent = 'Chưa có thành viên';
-        option.value = '';
-        select.append(option);
-      }
-      select.disabled = members.length === 0;
-      $('addExpenseBtn').disabled = members.length === 0;
-    }
-
-    async function addMember() {
-      const name = $('memberName').value.trim();
-      if (!name) return showMessage('Bạn chưa nhập tên thành viên.', 'warning');
-      if (await runAction('add_member', { name }, 'Đã thêm thành viên.')) {
-        $('memberName').value = '';
-      }
-    }
-
-    async function editMember(member) {
-      const value = prompt('Tên mới:', member.name);
-      if (value === null) return;
-      const name = value.trim();
-      if (!name) return showMessage('Tên thành viên không được trống.', 'warning');
-      await runAction('edit_member', { id: member.id, name }, 'Đã đổi tên.');
-    }
-
-    async function deleteMember(member) {
-      if (!confirm(`Xóa ${member.name} và mọi khoản chi của người này?`)) return;
-      await runAction('delete_member', { id: member.id }, 'Đã xóa thành viên.');
-    }
-
-    function validAmount(value) {
-      const amount = Number(value);
-      if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1000000000000) {
-        showMessage('Số tiền phải là số nguyên dương tối đa 1.000.000.000.000₫.', 'warning');
-        return null;
-      }
-      return amount;
-    }
-
-    async function addExpense() {
-      const memberId = $('expenseUser').value;
-      const category = $('category').value.trim();
-      const amount = validAmount($('amount').value);
-      if (!memberId || amount === null) return;
-      if (await runAction('add_expense', { memberId, category, amount }, 'Đã thêm khoản chi.')) {
-        $('category').value = '';
-        $('amount').value = '';
-      }
-    }
-
-    async function editExpense(expense) {
-      const password = prompt('Nhập mật khẩu sửa khoản chi:');
-      if (password === null) return;
-      const raw = prompt('Số tiền mới:', String(expense.amount));
-      if (raw === null) return;
-      const amount = validAmount(raw);
-      if (amount === null) return;
-      await runAction('edit_expense', { id: expense.id, amount, password }, 'Đã sửa khoản chi.');
-    }
-
-    async function deleteExpense(expense) {
-      const password = prompt('Nhập mật khẩu xóa khoản chi:');
-      if (password === null) return;
-      if (!confirm('Xóa khoản chi này?')) return;
-      await runAction('delete_expense', { id: expense.id, password }, 'Đã xóa khoản chi.');
-    }
-
-    function line(text, tag = 'p') {
-      const el = document.createElement(tag);
-      el.textContent = text;
-      return el;
-    }
-
-    function renderResults(members, expenses) {
-      const result = $('result');
-      const paid = Object.fromEntries(members.map(m => [m.id, 0]));
-      const names = Object.fromEntries(members.map(m => [m.id, m.name]));
-      let total = 0;
-      expenses.forEach(e => {
-        total += e.amount;
-        paid[e.memberId] = (paid[e.memberId] || 0) + e.amount;
-      });
-      const avg = members.length ? total / members.length : 0;
-      const header = line('Tổng: ' + money(total), 'h5');
-      const perPerson = line('Mỗi người: ' + money(Math.round(avg)) + (total % (members.length || 1) ? ' (làm tròn đến 1₫)' : ''));
-      const title = line('📄 Chi tiết', 'h6');
-      const wrapper = document.createElement('div');
-      wrapper.className = 'table-wrap mb-3';
-      const table = document.createElement('table');
-      table.className = 'table table-sm table-striped';
-      table.innerHTML = '<thead><tr><th>Người</th><th>Hạng mục</th><th>Tiền</th><th></th></tr></thead>';
-      const tbody = document.createElement('tbody');
-      [...expenses].reverse().forEach(e => {
-        const tr = document.createElement('tr');
-        [names[e.memberId] || '(đã xóa)', e.category || '', money(e.amount)].forEach(value => {
-          const td = document.createElement('td');
-          td.textContent = value;
-          tr.append(td);
-        });
-        const buttons = document.createElement('td');
-        const actions = document.createElement('div');
-        actions.className = 'd-flex gap-1';
-        actions.append(
-          smallButton('Sửa', 'warning', () => editExpense(e)),
-          smallButton('Xóa', 'danger', () => deleteExpense(e))
-        );
-        buttons.append(actions);
-        tr.append(buttons);
-        tbody.append(tr);
-      });
-      if (!expenses.length) {
-        const tr = document.createElement('tr');
-        const td = document.createElement('td');
-        td.colSpan = 4;
-        td.className = 'text-secondary';
-        td.textContent = 'Chưa có khoản chi nào.';
-        tr.append(td);
-        tbody.append(tr);
-      }
-      table.append(tbody);
-      wrapper.append(table);
-
-      const settleTitle = line('🔄 Ai trả ai', 'h6');
-      const transfers = document.createElement('div');
-      if (members.length) {
-        // Chia phần dư (nếu có) mỗi người +1₫ để tổng phải trả vẫn đúng tuyệt đối.
-        const base = Math.floor(total / members.length);
-        const extra = total % members.length;
-        const creditors = [];
-        const debtors = [];
-        members.forEach((m, index) => {
-          const target = base + (index < extra ? 1 : 0);
-          const balance = paid[m.id] - target;
-          if (balance > 0) creditors.push({ name: m.name, amount: balance });
-          if (balance < 0) debtors.push({ name: m.name, amount: -balance });
-        });
-        let i = 0;
-        let j = 0;
-        while (i < debtors.length && j < creditors.length) {
-          const value = Math.min(debtors[i].amount, creditors[j].amount);
-          const p = document.createElement('p');
-          p.className = 'mb-1';
-          p.append(document.createTextNode(`${debtors[i].name} trả ${creditors[j].name}: `));
-          const strong = document.createElement('strong');
-          strong.textContent = money(value);
-          p.append(strong);
-          transfers.append(p);
-          debtors[i].amount -= value;
-          creditors[j].amount -= value;
-          if (!debtors[i].amount) i++;
-          if (!creditors[j].amount) j++;
-        }
-      }
-      if (!transfers.childNodes.length) transfers.append(line('Đã cân bằng 👍'));
-      result.replaceChildren(header, perPerson, title, wrapper, settleTitle, transfers);
-    }
-
-    async function copyLink() {
-      const text = $('shareLink').value;
-      try {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(text);
-        } else {
-          $('shareLink').select();
-          if (!document.execCommand('copy')) throw new Error('Copy thất bại.');
-        }
-        showMessage('Đã copy link 👍');
-      } catch {
-        showMessage('Không tự copy được. Bạn hãy chọn và sao chép link.', 'warning');
-      }
-    }
-
-    $('createTripBtn').addEventListener('click', createTrip);
-    $('addMemberBtn').addEventListener('click', addMember);
-    $('addExpenseBtn').addEventListener('click', addExpense);
-    $('copyLinkBtn').addEventListener('click', copyLink);
-    $('tripName').addEventListener('keydown', e => { if (e.key === 'Enter') createTrip(); });
-    $('memberName').addEventListener('keydown', e => { if (e.key === 'Enter') addMember(); });
-    $('amount').addEventListener('keydown', e => { if (e.key === 'Enter') addExpense(); });
-
-    const params = new URLSearchParams(location.search);
-    const trip = params.get('trip');
-    if (trip) openTrip(trip, params.get('view') === 'guest');
-  </script>
-</body>
-</html>
+<body><main class="container py-4" style="max-width:870px">
+<h2 class="text-center fw-bold mb-1">💸 Split Money</h2><p class="text-center muted mb-4">Chia tiền chuyến đi • đồng bộ theo thời gian thực</p>
+<div id="status" class="alert alert-info status" role="status">Đang kết nối Firebase…</div>
+<section class="card p-3 mb-3" id="createBlock"><label for="tripName" class="form-label fw-semibold">Tên chuyến đi</label><div class="input-group"><input id="tripName" class="form-control" maxlength="80" placeholder="Ví dụ: Đà Lạt 2026"><button id="createBtn" class="btn btn-dark">🚀 Tạo trip</button></div></section>
+<section class="card p-3 mb-3 d-none" id="tripBlock"><div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"><h5 class="m-0" id="tripTitle"></h5><button id="newTripBtn" class="btn btn-outline-secondary btn-sm">Trip mới</button></div><label class="form-label tiny">Link chia sẻ (người có link có thể xem và thêm chi tiêu)</label><div class="input-group"><input id="shareLink" class="form-control" readonly><button id="copyBtn" class="btn btn-outline-primary">Copy</button></div></section>
+<section class="card p-3 mb-3 d-none" id="memberBlock"><h5>👥 Thành viên</h5><div class="input-group mb-2"><input id="memberName" class="form-control" maxlength="80" placeholder="Nhập tên thành viên"><button id="addMemberBtn" class="btn btn-primary">Thêm</button></div><ul id="memberList" class="list-group list-group-flush"></ul></section>
+<section class="card p-3 mb-3 d-none" id="expenseBlock"><h5>💰 Thêm chi tiêu</h5><label class="form-label">Ai đã trả?</label><select id="expenseUser" class="form-select mb-2"></select><input id="category" class="form-control mb-2" maxlength="120" placeholder="Hạng mục (ăn uống, taxi...)"><input id="amount" type="number" min="1" max="1000000000000" step="1" class="form-control mb-2" placeholder="Số tiền (VND)"><button id="addExpenseBtn" class="btn btn-success w-100">➕ Thêm chi tiêu</button></section>
+<section class="card p-3 d-none" id="resultBlock"><h5 class="fw-bold">📊 Tổng kết</h5><p id="summary" class="mb-3"></p><h6>📄 Chi tiết</h6><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Người trả</th><th>Hạng mục</th><th class="text-end">Tiền</th><th></th></tr></thead><tbody id="expenseList"></tbody></table></div><h6 class="mt-3">🔄 Ai trả ai</h6><div id="settlement"></div></section>
+<p class="text-center muted tiny mt-3">Dữ liệu lưu trên Firebase Firestore, không nằm trong repository GitHub.</p>
+</main>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>
+'use strict';
+// Firebase Web App configuration. Replace if using a different Firebase project.
+const firebaseConfig = {
+  apiKey: 'AIzaSyCF4fY5OVOpD52uhkY4bXnaa426EfQsMCE',
+  authDomain: 'split-money-app-c6ac2.firebaseapp.com',
+  projectId: 'split-money-app-c6ac2'
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const el = id => document.getElementById(id);
+const money = n => Math.round(n).toLocaleString('vi-VN') + '₫';
+const docText = (tag, value, klass) => { const x = document.createElement(tag); x.textContent = value; if(klass) x.className=klass; return x; };
+let tripId = null, members = [], expenses = [], unsubs = [], currentUser = null;
+function status(message, type='info'){ el('status').className='alert alert-'+type; el('status').textContent=message; }
+function failed(e){ console.error(e); status('Có lỗi: '+(e.message || String(e)), 'danger'); }
+function toggleTrip(on){ ['tripBlock','memberBlock','expenseBlock','resultBlock'].forEach(id=>el(id).classList.toggle('d-none',!on)); el('createBlock').classList.toggle('d-none',on); }
+function stopListening(){unsubs.forEach(u=>u());unsubs=[];}
+function shareUrl(id){const u=new URL(location.href);u.searchParams.set('trip',id);return u.toString();}
+async function openTrip(id){
+ stopListening(); tripId=id; members=[]; expenses=[]; toggleTrip(true);
+ const doc=await db.collection('trips').doc(id).get();
+ if(!doc.exists) {stopListening();tripId=null;toggleTrip(false);status('Không tìm thấy trip. Kiểm tra lại link.', 'warning');return;}
+ el('tripTitle').textContent='🧳 '+doc.data().name;
+ el('shareLink').value=shareUrl(id);history.replaceState(null,'',shareUrl(id));
+ unsubs.push(db.collection('trips').doc(id).collection('members').onSnapshot(s=>{
+   members=s.docs.map(d=>({id:d.id,...d.data()}));renderMembers();renderAll();
+ },failed));
+ unsubs.push(db.collection('trips').doc(id).collection('expenses').onSnapshot(s=>{
+   expenses=s.docs.map(d=>({id:d.id,...d.data()}));renderAll();
+ },failed));
+ status('Đã kết nối! Dữ liệu tự đồng bộ với mọi người có link.', 'success');
+}
+async function createTrip(){
+ const name=el('tripName').value.trim();if(!name)return status('Nhập tên trip trước nhé.', 'warning');
+ try{ const ref=db.collection('trips').doc();await ref.set({name,createdBy:currentUser.uid,createdAt:firebase.firestore.FieldValue.serverTimestamp()});await openTrip(ref.id); }
+ catch(e){failed(e);}
+}
+async function addMember(){
+ const name=el('memberName').value.trim();if(!tripId||!name)return;
+ if(members.some(m=>m.name.toLocaleLowerCase('vi')===name.toLocaleLowerCase('vi')))return status('Tên thành viên đã tồn tại.', 'warning');
+ try{await db.collection('trips').doc(tripId).collection('members').add({name});el('memberName').value='';}catch(e){failed(e);}
+}
+function renderMembers(){
+ const list=el('memberList'), select=el('expenseUser'), previous=select.value;
+ list.replaceChildren();select.replaceChildren();
+ members.forEach(m=>{
+  const li=docText('li',m.name,'list-group-item');list.appendChild(li);
+  const opt=document.createElement('option');opt.value=m.id;opt.textContent=m.name;select.appendChild(opt);
+ });
+ if(members.some(m=>m.id===previous))select.value=previous;
+}
+async function addExpense(){
+ const memberId=el('expenseUser').value, category=el('category').value.trim();
+ const amount=Number(el('amount').value);
+ if(!tripId||!members.some(m=>m.id===memberId)||!Number.isSafeInteger(amount)||amount<=0||amount>1e12) return status('Chọn thành viên và nhập số tiền nguyên hợp lệ.', 'warning');
+ try{
+  await db.collection('trips').doc(tripId).collection('expenses').add({memberId,category,amount,createdBy:currentUser.uid,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+  el('category').value='';el('amount').value=''; status('Đã thêm khoản chi!', 'success');
+ }catch(e){failed(e);}
+}
+async function editExpense(x){
+ const str=prompt('Số tiền mới (VND):',String(x.amount));if(str===null)return;
+ const amount=Number(str);if(!Number.isSafeInteger(amount)||amount<=0||amount>1e12)return status('Số tiền phải là số nguyên dương.', 'warning');
+ try{await db.collection('trips').doc(tripId).collection('expenses').doc(x.id).update({amount});}catch(e){failed(e);}
+}
+async function deleteExpense(x){
+ if(!confirm('Xóa khoản chi này?'))return;
+ try{await db.collection('trips').doc(tripId).collection('expenses').doc(x.id).delete();}catch(e){failed(e);}
+}
+function renderAll(){
+ const names=new Map(members.map(m=>[m.id,m.name]));
+ const total=expenses.reduce((a,x)=>a+(Number(x.amount)||0),0);
+ const count=members.length, avg=count?total/count:0;
+ el('summary').textContent=`Tổng: ${money(total)}  •  Mỗi người: ${money(avg)}  •  ${count} thành viên`;
+ const tbody=el('expenseList');tbody.replaceChildren();
+ expenses.forEach(x=>{
+  const tr=document.createElement('tr');
+  tr.append(docText('td',names.get(x.memberId)||'(đã rời nhóm)'),docText('td',x.category||'—'),docText('td',money(x.amount),'text-end money'));
+  const td=document.createElement('td');td.className='text-end text-nowrap';
+  if(x.createdBy===currentUser?.uid){
+    const edit=docText('button','Sửa','btn btn-sm btn-outline-warning me-1');edit.onclick=()=>editExpense(x);
+    const del=docText('button','Xóa','btn btn-sm btn-outline-danger');del.onclick=()=>deleteExpense(x);td.append(edit,del);
+  }tr.appendChild(td);tbody.appendChild(tr);
+ });
+ if(!expenses.length){const tr=docText('tr','');const td=docText('td','Chưa có khoản chi nào.','muted');td.colSpan=4;tr.appendChild(td);tbody.appendChild(tr);}
+ const balances=members.map(m=>({name:m.name,amount:(expenses.filter(x=>x.memberId===m.id).reduce((a,x)=>a+x.amount,0))-avg}));
+ const debtors=balances.filter(x=>x.amount< -0.01).map(x=>({...x,amount:-x.amount}));
+ const creditors=balances.filter(x=>x.amount>0.01).map(x=>({...x}));
+ const out=el('settlement');out.replaceChildren();
+ let i=0,j=0;while(i<debtors.length && j<creditors.length){
+  const n=Math.min(debtors[i].amount,creditors[j].amount); const p=document.createElement('p');p.className='mb-2';
+  p.append(docText('span',`${debtors[i].name} trả ${creditors[j].name}: `),docText('strong',money(n)));out.appendChild(p);
+  debtors[i].amount-=n;creditors[j].amount-=n;if(debtors[i].amount<0.01)i++;if(creditors[j].amount<0.01)j++;
+ }
+ if(!out.childNodes.length)out.textContent='Đã cân bằng 👍';
+}
+el('createBtn').onclick=createTrip;el('addMemberBtn').onclick=addMember;el('addExpenseBtn').onclick=addExpense;
+el('copyBtn').onclick=async()=>{try{await navigator.clipboard.writeText(el('shareLink').value);status('Đã copy link!', 'success');}catch(e){el('shareLink').select();status('Hãy copy link trong ô bên trên.', 'warning');}};
+el('newTripBtn').onclick=()=>{stopListening();tripId=null;history.replaceState(null,'',location.pathname);toggleTrip(false);status('Nhập tên để tạo trip mới.','info');};
+el('tripName').addEventListener('keydown',e=>{if(e.key==='Enter')createTrip();});
+el('memberName').addEventListener('keydown',e=>{if(e.key==='Enter')addMember();});
+el('amount').addEventListener('keydown',e=>{if(e.key==='Enter')addExpense();});
+auth.onAuthStateChanged(async user=>{
+ try{
+ if(!user){await auth.signInAnonymously();return;}
+ currentUser=user;
+ const id=new URLSearchParams(location.search).get('trip');
+ if(id){if(!/^[a-zA-Z0-9]{20}$/.test(id))return status('Mã trip không hợp lệ.', 'danger');await openTrip(id);}
+ else status('Sẵn sàng! Hãy tạo trip đầu tiên.', 'success');
+ }catch(e){failed(e);}
+});
+</script></body></html>

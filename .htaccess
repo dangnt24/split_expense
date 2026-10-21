@@ -1,6 +1,0 @@
-Options -Indexes
-
-# Apache 2.4+: cấm truy cập trực tiếp file lưu dữ liệu và cấu hình.
-<FilesMatch "^(data\.json|config\.php|\.htaccess)$">
-    Require all denied
-</FilesMatch>
