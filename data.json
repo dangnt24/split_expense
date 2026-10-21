@@ -1,0 +1,34 @@
+{
+    "trips": {
+        "Hà Teen": {
+            "members": [],
+            "expenses": []
+        },
+        "CanTho": {
+            "members": [
+                {
+                    "id": "295ba789d7492160",
+                    "name": "Đăng"
+                },
+                {
+                    "id": "2e98df017e686e92",
+                    "name": "Tân"
+                }
+            ],
+            "expenses": [
+                {
+                    "id": "d9b86b3deb4fec67",
+                    "memberId": "295ba789d7492160",
+                    "category": "Cum21\/10-Chiều",
+                    "amount": 35000
+                },
+                {
+                    "id": "8c9bbda39ab2cf01",
+                    "memberId": "295ba789d7492160",
+                    "category": "Cum21\/10-Trưa",
+                    "amount": 28000
+                }
+            ]
+        }
+    }
+}
