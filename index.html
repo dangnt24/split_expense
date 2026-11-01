@@ -12,7 +12,8 @@ body{background:#f5f7fb;color:#1e293b}.card{border:0;border-radius:17px;box-shad
 <h2 class="text-center fw-bold mb-1">💸 Split Money</h2><p class="text-center muted mb-4">Chia tiền chuyến đi • đồng bộ theo thời gian thực</p>
 <div id="status" class="alert alert-info status" role="status">Đang kết nối Firebase…</div>
 <section class="card p-3 mb-3" id="createBlock"><label for="tripName" class="form-label fw-semibold">Tên chuyến đi</label><div class="input-group"><input id="tripName" class="form-control" maxlength="80" placeholder="Ví dụ: Đà Lạt 2026"><button id="createBtn" class="btn btn-dark">🚀 Tạo trip</button></div></section>
-<section class="card p-3 mb-3 d-none" id="tripBlock"><div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"><h5 class="m-0" id="tripTitle"></h5><button id="newTripBtn" class="btn btn-outline-secondary btn-sm">Trip mới</button></div><label class="form-label tiny">Link chia sẻ (người có link có thể xem và thêm chi tiêu)</label><div class="input-group"><input id="shareLink" class="form-control" readonly><button id="copyBtn" class="btn btn-outline-primary">Copy</button></div></section>
+<section class="card p-3 mb-3" id="tripListBlock"><div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"><h5 class="m-0">🧳 Danh sách tất cả Trip</h5><span class="badge text-bg-light" id="tripCount">0 Trip</span></div><p class="muted tiny mb-2">Chọn một Trip để mở hoặc sao chép link chia sẻ.</p><div id="tripList" class="list-group list-group-flush"><p class="muted mb-0">Đang tải danh sách Trip…</p></div></section>
+<section class="card p-3 mb-3 d-none" id="tripBlock"><div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"><h5 class="m-0" id="tripTitle"></h5><button id="newTripBtn" class="btn btn-outline-secondary btn-sm">🏠 Trang chính</button></div><label class="form-label tiny">Link chia sẻ (người có link có thể xem và thêm chi tiêu)</label><div class="input-group"><input id="shareLink" class="form-control" readonly><button id="copyBtn" class="btn btn-outline-primary">Copy</button></div></section>
 <section class="card p-3 mb-3 d-none" id="memberBlock"><h5>👥 Thành viên</h5><div class="input-group mb-2"><input id="memberName" class="form-control" maxlength="80" placeholder="Nhập tên thành viên"><button id="addMemberBtn" class="btn btn-primary">Thêm</button></div><ul id="memberList" class="list-group list-group-flush"></ul></section>
 <section class="card p-3 mb-3 d-none" id="expenseBlock"><h5>💰 Thêm chi tiêu</h5><label class="form-label">Ai đã trả?</label><select id="expenseUser" class="form-select mb-2"></select><input id="category" class="form-control mb-2" maxlength="120" placeholder="Hạng mục (ăn uống, taxi...)"><input id="amount" type="number" min="1" max="1000000000000" step="1" class="form-control mb-2" placeholder="Số tiền (VND)"><button id="addExpenseBtn" class="btn btn-success w-100">➕ Thêm chi tiêu</button></section>
 <section class="card p-3 d-none" id="resultBlock"><h5 class="fw-bold">📊 Tổng kết</h5><p id="summary" class="mb-3"></p><h6>📄 Chi tiết</h6><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Người trả</th><th>Hạng mục</th><th class="text-end">Tiền</th><th></th></tr></thead><tbody id="expenseList"></tbody></table></div><h6 class="mt-3">🔄 Ai trả ai</h6><div id="settlement"></div></section>
@@ -39,16 +40,50 @@ const db = firebase.firestore();
 const el = id => document.getElementById(id);
 const money = n => Math.round(n).toLocaleString('vi-VN') + '₫';
 const docText = (tag, value, klass) => { const x = document.createElement(tag); x.textContent = value; if(klass) x.className=klass; return x; };
-let tripId = null, members = [], expenses = [], unsubs = [], currentUser = null;
+let tripId = null, members = [], expenses = [], unsubs = [], currentUser = null, tripListUnsub = null;
 function status(message, type='info'){ el('status').className='alert alert-'+type; el('status').textContent=message; }
 function failed(e){ console.error(e); status('Có lỗi: '+(e.message || String(e)), 'danger'); }
-function toggleTrip(on){ ['tripBlock','memberBlock','expenseBlock','resultBlock'].forEach(id=>el(id).classList.toggle('d-none',!on)); el('createBlock').classList.toggle('d-none',on); }
+function toggleTrip(on){ ['tripBlock','memberBlock','expenseBlock','resultBlock'].forEach(id=>el(id).classList.toggle('d-none',!on)); el('createBlock').classList.toggle('d-none',on); el('tripListBlock').classList.toggle('d-none',on); }
 function stopListening(){unsubs.forEach(u=>u());unsubs=[];}
 function shareUrl(id){const u=new URL(location.href);u.searchParams.set('trip',id);return u.toString();}
+function stopTripList(){if(tripListUnsub){tripListUnsub();tripListUnsub=null;}}
+function showHome(){
+ stopListening();tripId=null;members=[];expenses=[];
+ history.replaceState(null,'',location.pathname+location.hash);
+ toggleTrip(false);listenForTrips();
+ status('Đây là danh sách các Trip bạn có quyền xem.', 'success');
+}
+function listenForTrips(){
+ stopTripList();
+ const list=el('tripList');list.replaceChildren(docText('p','Đang tải danh sách Trip…','muted mb-0'));
+ tripListUnsub=db.collection('trips').onSnapshot(snapshot=>{
+  list.replaceChildren();
+  const docs=snapshot.docs.slice().sort((a,b)=>{
+   const at=a.data().createdAt?.toMillis?.()||0,bt=b.data().createdAt?.toMillis?.()||0;
+   return bt-at;
+  });
+  el('tripCount').textContent=docs.length+' Trip';
+  if(!docs.length){list.appendChild(docText('p','Chưa có Trip nào. Hãy tạo Trip đầu tiên!','muted mb-0'));return;}
+  docs.forEach(doc=>{
+   const item=document.createElement('div');item.className='list-group-item px-0 py-3';
+   const layout=document.createElement('div');layout.className='d-flex justify-content-between align-items-center flex-wrap gap-2';
+   const info=document.createElement('div');info.className='flex-grow-1';
+   info.appendChild(docText('div','🧳 '+(doc.data().name||'Trip không tên'),'fw-semibold'));
+   const link=document.createElement('a');link.href=shareUrl(doc.id);link.className='tiny text-break';link.textContent=shareUrl(doc.id);
+   info.appendChild(link);
+   const actions=document.createElement('div');actions.className='d-flex gap-2';
+   const open=docText('button','Mở','btn btn-sm btn-primary');open.onclick=()=>openTrip(doc.id).catch(failed);
+   const copy=docText('button','Copy link','btn btn-sm btn-outline-primary');
+   copy.onclick=async()=>{try{await navigator.clipboard.writeText(shareUrl(doc.id));status('Đã copy link Trip!','success');}catch(e){status('Không thể copy tự động, hãy sao chép link hiển thị.','warning');}};
+   actions.append(open,copy);layout.append(info,actions);item.appendChild(layout);list.appendChild(item);
+  });
+ },e=>{console.error(e);list.replaceChildren(docText('p','Không thể tải danh sách Trip. Kiểm tra quyền đọc danh sách trong Firestore Rules.','text-danger mb-0'));el('tripCount').textContent='—';});
+}
 async function openTrip(id){
+ stopTripList();
  stopListening(); tripId=id; members=[]; expenses=[]; toggleTrip(true);
  const doc=await db.collection('trips').doc(id).get();
- if(!doc.exists) {stopListening();tripId=null;toggleTrip(false);status('Không tìm thấy trip. Kiểm tra lại link.', 'warning');return;}
+ if(!doc.exists) {showHome();status('Không tìm thấy trip. Kiểm tra lại link.', 'warning');return;}
  el('tripTitle').textContent='🧳 '+doc.data().name;
  el('shareLink').value=shareUrl(id);history.replaceState(null,'',shareUrl(id));
  unsubs.push(db.collection('trips').doc(id).collection('members').onSnapshot(s=>{
@@ -125,7 +160,7 @@ function renderAll(){
 }
 el('createBtn').onclick=createTrip;el('addMemberBtn').onclick=addMember;el('addExpenseBtn').onclick=addExpense;
 el('copyBtn').onclick=async()=>{try{await navigator.clipboard.writeText(el('shareLink').value);status('Đã copy link!', 'success');}catch(e){el('shareLink').select();status('Hãy copy link trong ô bên trên.', 'warning');}};
-el('newTripBtn').onclick=()=>{stopListening();tripId=null;history.replaceState(null,'',location.pathname);toggleTrip(false);status('Nhập tên để tạo trip mới.','info');};
+el('newTripBtn').onclick=showHome;
 el('tripName').addEventListener('keydown',e=>{if(e.key==='Enter')createTrip();});
 el('memberName').addEventListener('keydown',e=>{if(e.key==='Enter')addMember();});
 el('amount').addEventListener('keydown',e=>{if(e.key==='Enter')addExpense();});
@@ -135,7 +170,7 @@ auth.onAuthStateChanged(async user=>{
  currentUser=user;
  const id=new URLSearchParams(location.search).get('trip');
  if(id){if(!/^[a-zA-Z0-9]{20}$/.test(id))return status('Mã trip không hợp lệ.', 'danger');await openTrip(id);}
- else status('Sẵn sàng! Hãy tạo trip đầu tiên.', 'success');
+ else showHome();
  }catch(e){failed(e);}
 });
 </script></body></html>
